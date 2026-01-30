@@ -9,7 +9,7 @@ const CONFIG = {
   NAMORADA: '558189070413',
   
   // 👨‍💻 Número do administrador (você - quem recebe os avisos)
-  ADMIN: '5581981911625',
+  ADMIN: '558187338645',
 };
 
 // ═══════════════════════════════════════════════════════════════════
