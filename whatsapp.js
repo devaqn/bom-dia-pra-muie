@@ -78,11 +78,29 @@ class WhatsAppManager {
         // Trata conexão fechada
         if (connection === 'close') {
           this.conectado = false;
-          const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
           
           console.log('❌ Conexão fechada. Motivo:', lastDisconnect?.error);
           
-          if (shouldReconnect) {
+          // Se for erro 401 (Unauthorized), limpa a sessão
+          if (statusCode === 401) {
+            console.log('🔐 Erro 401 detectado - Sessão inválida!');
+            console.log('🧹 Limpando arquivos de autenticação...');
+            
+            const fs = require('fs');
+            const path = require('path');
+            const authPath = path.join(__dirname, 'auth_info');
+            
+            if (fs.existsSync(authPath)) {
+              fs.rmSync(authPath, { recursive: true, force: true });
+              console.log('✅ Sessão antiga removida!');
+              console.log('🔄 Gerando novo QR Code...');
+            }
+            
+            // Aguarda 3 segundos e reinicia para gerar novo QR
+            setTimeout(() => this.iniciar(), 3000);
+          } else if (shouldReconnect) {
             console.log('🔄 Reconectando...');
             setTimeout(() => this.iniciar(), 5000); // Aguarda 5 segundos antes de reconectar
           } else {
