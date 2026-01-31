@@ -103,7 +103,7 @@ class WhatsAppManager {
         },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ['WhatsApp Bot', 'Chrome', '10.0'],
+        browser: ['whatsapp-routine-bot', 'Chrome', '10.0'],
         generateHighQualityLinkPreview: true,
         // 🔧 Configurações para não marcar como lido automaticamente
         markOnlineOnConnect: false,
