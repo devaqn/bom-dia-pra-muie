@@ -7,6 +7,8 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
+const path = require('path');
 
 class WhatsAppManager {
   constructor() {
@@ -19,6 +21,55 @@ class WhatsAppManager {
       onMensagemRecebida: null,
       onQR: null,
     };
+    
+    // 🔧 CORREÇÃO: Define caminho absoluto para auth_info
+    this.authPath = path.join(__dirname, 'auth_info');
+    
+    // 🔧 CORREÇÃO: Garante que o diretório existe
+    this.garantirDiretorioAuth();
+  }
+
+  /**
+   * 🔧 NOVO: Garante que o diretório de autenticação existe
+   */
+  garantirDiretorioAuth() {
+    if (!fs.existsSync(this.authPath)) {
+      fs.mkdirSync(this.authPath, { recursive: true });
+      console.log('📁 Diretório de autenticação criado:', this.authPath);
+    }
+  }
+
+  /**
+   * 🔧 NOVO: Verifica se existe sessão salva
+   */
+  temSessaoSalva() {
+    const credsPath = path.join(this.authPath, 'creds.json');
+    const existe = fs.existsSync(credsPath);
+    
+    if (existe) {
+      console.log('✅ Sessão encontrada em:', credsPath);
+    } else {
+      console.log('❌ Nenhuma sessão encontrada');
+    }
+    
+    return existe;
+  }
+
+  /**
+   * 🔧 MODIFICADO: Limpa sessão antiga apenas quando necessário
+   */
+  limparSessao() {
+    try {
+      if (fs.existsSync(this.authPath)) {
+        fs.rmSync(this.authPath, { recursive: true, force: true });
+        console.log('🧹 Sessão antiga removida');
+        
+        // Recria o diretório
+        this.garantirDiretorioAuth();
+      }
+    } catch (error) {
+      console.error('❌ Erro ao limpar sessão:', error);
+    }
   }
 
   /**
@@ -27,9 +78,18 @@ class WhatsAppManager {
   async iniciar() {
     try {
       console.log('🚀 Iniciando conexão com WhatsApp...');
+      
+      // 🔧 CORREÇÃO: Verifica se tem sessão antes de tentar conectar
+      const temSessao = this.temSessaoSalva();
+      
+      if (temSessao) {
+        console.log('🔄 Tentando reconectar com sessão salva...');
+      } else {
+        console.log('🆕 Primeira conexão - QR Code será gerado');
+      }
 
-      // Carrega a autenticação salva ou cria uma nova
-      const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+      // 🔧 CORREÇÃO: Usa caminho absoluto definido no construtor
+      const { state, saveCreds } = await useMultiFileAuthState(this.authPath);
 
       // Obtém a versão mais recente do Baileys
       const { version } = await fetchLatestBaileysVersion();
@@ -41,21 +101,27 @@ class WhatsAppManager {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
         },
-        printQRInTerminal: false, // Vamos controlar o QR manualmente
-        logger: pino({ level: 'silent' }), // Remove logs verbosos do Baileys
-        browser: ['WhatsApp Bot', 'Chrome', '10.0'], // Identificação do dispositivo
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        browser: ['WhatsApp Bot', 'Chrome', '10.0'],
         generateHighQualityLinkPreview: true,
-        // 🔧 CORREÇÃO: Desabilita marcação automática de lida
+        // 🔧 Configurações para não marcar como lido automaticamente
         markOnlineOnConnect: false,
         syncFullHistory: false,
+        // 🔧 NOVO: Configurações para melhor persistência
+        defaultQueryTimeoutMs: undefined,
+        keepAliveIntervalMs: 30000, // Mantém conexão viva a cada 30s
       });
 
       // ═══════════════════════════════════════════════════════════════════
       // EVENTOS DO WHATSAPP
       // ═══════════════════════════════════════════════════════════════════
 
-      // Evento: Atualização de credenciais (salva automaticamente)
-      this.sock.ev.on('creds.update', saveCreds);
+      // 🔧 MODIFICADO: Salva credenciais com log para debug
+      this.sock.ev.on('creds.update', async () => {
+        await saveCreds();
+        console.log('💾 Credenciais atualizadas e salvas');
+      });
 
       // Evento: Atualização de conexão
       this.sock.ev.on('connection.update', async (update) => {
@@ -84,30 +150,35 @@ class WhatsAppManager {
           const statusCode = lastDisconnect?.error?.output?.statusCode;
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
           
-          console.log('❌ Conexão fechada. Motivo:', lastDisconnect?.error);
+          console.log('❌ Conexão fechada. Código:', statusCode);
+          console.log('   Motivo:', lastDisconnect?.error?.message);
           
-          // Se for erro 401 (Unauthorized), limpa a sessão
-          if (statusCode === 401) {
-            console.log('🔐 Erro 401 detectado - Sessão inválida!');
-            console.log('🧹 Limpando arquivos de autenticação...');
+          // 🔧 MODIFICADO: Tratamento melhorado de erros
+          if (statusCode === DisconnectReason.loggedOut) {
+            console.log('🚪 Deslogado do WhatsApp');
+            console.log('🧹 Limpando sessão...');
+            this.limparSessao();
+            console.log('📱 Execute novamente para gerar novo QR Code');
             
-            const fs = require('fs');
-            const path = require('path');
-            const authPath = path.join(__dirname, 'auth_info');
-            
-            if (fs.existsSync(authPath)) {
-              fs.rmSync(authPath, { recursive: true, force: true });
-              console.log('✅ Sessão antiga removida!');
-              console.log('🔄 Gerando novo QR Code...');
-            }
-            
-            // Aguarda 3 segundos e reinicia para gerar novo QR
+          } else if (statusCode === 401 || statusCode === 403) {
+            console.log('🔐 Erro de autenticação detectado');
+            console.log('🧹 Limpando sessão corrompida...');
+            this.limparSessao();
+            console.log('🔄 Aguardando 3 segundos para reiniciar...');
             setTimeout(() => this.iniciar(), 3000);
+            
+          } else if (statusCode === 440) {
+            console.log('📱 WhatsApp Web desconectado pelo celular');
+            console.log('🧹 Limpando sessão...');
+            this.limparSessao();
+            console.log('📱 Execute novamente para gerar novo QR Code');
+            
           } else if (shouldReconnect) {
-            console.log('🔄 Reconectando...');
-            setTimeout(() => this.iniciar(), 5000); // Aguarda 5 segundos antes de reconectar
+            console.log('🔄 Tentando reconectar em 5 segundos...');
+            setTimeout(() => this.iniciar(), 5000);
+            
           } else {
-            console.log('🚪 Desconectado do WhatsApp. Execute novamente para reconectar.');
+            console.log('🚪 Conexão encerrada');
           }
           
           if (this.callbacks.onDesconectado) {
@@ -120,6 +191,7 @@ class WhatsAppManager {
           this.conectado = true;
           this.qrGerado = false;
           console.log('\n✅ Conectado ao WhatsApp com sucesso!');
+          console.log('💾 Sessão salva em:', this.authPath);
           console.log('═══════════════════════════════════════\n');
           
           if (this.callbacks.onConectado) {
@@ -148,9 +220,6 @@ class WhatsAppManager {
 
           console.log(`\n📩 Mensagem recebida de ${remetente}:`);
           console.log(`   "${mensagem}"`);
-
-          // 🔧 CORREÇÃO: NÃO marca como lida automaticamente
-          // A marcação de lida agora é feita apenas quando necessário
 
           // Chama o callback de mensagem recebida
           if (this.callbacks.onMensagemRecebida) {
@@ -270,7 +339,6 @@ class WhatsAppManager {
 
   /**
    * Marca mensagem como lida
-   * 🔧 CORREÇÃO: Agora só marca como lida quando explicitamente chamado
    * @param {object} mensagem - Objeto da mensagem
    */
   async marcarComoLida(mensagem) {
@@ -352,6 +420,42 @@ class WhatsAppManager {
       await this.sock.logout();
       this.conectado = false;
       console.log('👋 Desconectado do WhatsApp');
+    }
+  }
+  
+  /**
+   * 🔧 NOVO: Obtém informações sobre a sessão
+   */
+  obterInfoSessao() {
+    try {
+      const credsPath = path.join(this.authPath, 'creds.json');
+      
+      if (!fs.existsSync(credsPath)) {
+        return {
+          existe: false,
+          caminho: this.authPath,
+          mensagem: 'Nenhuma sessão salva'
+        };
+      }
+      
+      const stats = fs.statSync(credsPath);
+      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+      
+      return {
+        existe: true,
+        caminho: this.authPath,
+        tamanho: `${(stats.size / 1024).toFixed(2)} KB`,
+        modificado: stats.mtime.toLocaleString('pt-BR'),
+        numero: creds.me?.id ? creds.me.id.split(':')[0] : 'Desconhecido',
+        mensagem: 'Sessão válida encontrada'
+      };
+    } catch (error) {
+      return {
+        existe: false,
+        caminho: this.authPath,
+        erro: error.message,
+        mensagem: 'Erro ao verificar sessão'
+      };
     }
   }
 }

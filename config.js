@@ -169,7 +169,7 @@ const PALAVRAS_CHAVE = {
   TOMOU: [
     'sim', 'tomei', 'já tomei', 'ja tomei', 'já', 'ja', 'ss', 's',
     'tomado', 'acabei de tomar', 'tomar', 'ok', 'uhum', 'uh hum',
-    'claro', 'com certeza', 'pode deixar', 'feito'
+    'claro', 'com certeza', 'pode deixar', 'feito', 'xim', 'ximm', 'xiimm', 'xiim'
   ],
   
   // Respostas indicando que NÃO tomou
