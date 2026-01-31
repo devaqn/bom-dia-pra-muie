@@ -45,11 +45,14 @@ class WhatsAppManager {
         logger: pino({ level: 'silent' }), // Remove logs verbosos do Baileys
         browser: ['WhatsApp Bot', 'Chrome', '10.0'], // Identificação do dispositivo
         generateHighQualityLinkPreview: true,
+        // 🔧 CORREÇÃO: Desabilita marcação automática de lida
+        markOnlineOnConnect: false,
+        syncFullHistory: false,
       });
 
-      // ═══════════════════════════════════════════════════════════════
+      // ═══════════════════════════════════════════════════════════════════
       // EVENTOS DO WHATSAPP
-      // ═══════════════════════════════════════════════════════════════
+      // ═══════════════════════════════════════════════════════════════════
 
       // Evento: Atualização de credenciais (salva automaticamente)
       this.sock.ev.on('creds.update', saveCreds);
@@ -60,13 +63,13 @@ class WhatsAppManager {
 
         // Exibe QR Code quando disponível
         if (qr && !this.qrGerado) {
-          console.log('\n════════════════════════════════════════');
+          console.log('\n═══════════════════════════════════════');
           console.log('📱 ESCANEIE O QR CODE ABAIXO:');
-          console.log('════════════════════════════════════════\n');
+          console.log('═══════════════════════════════════════\n');
           qrcode.generate(qr, { small: true });
-          console.log('\n════════════════════════════════════════');
+          console.log('\n═══════════════════════════════════════');
           console.log('⏳ Aguardando leitura do QR Code...');
-          console.log('════════════════════════════════════════\n');
+          console.log('═══════════════════════════════════════\n');
           
           this.qrGerado = true;
           
@@ -117,7 +120,7 @@ class WhatsAppManager {
           this.conectado = true;
           this.qrGerado = false;
           console.log('\n✅ Conectado ao WhatsApp com sucesso!');
-          console.log('════════════════════════════════════════\n');
+          console.log('═══════════════════════════════════════\n');
           
           if (this.callbacks.onConectado) {
             this.callbacks.onConectado();
@@ -145,6 +148,9 @@ class WhatsAppManager {
 
           console.log(`\n📩 Mensagem recebida de ${remetente}:`);
           console.log(`   "${mensagem}"`);
+
+          // 🔧 CORREÇÃO: NÃO marca como lida automaticamente
+          // A marcação de lida agora é feita apenas quando necessário
 
           // Chama o callback de mensagem recebida
           if (this.callbacks.onMensagemRecebida) {
@@ -264,6 +270,7 @@ class WhatsAppManager {
 
   /**
    * Marca mensagem como lida
+   * 🔧 CORREÇÃO: Agora só marca como lida quando explicitamente chamado
    * @param {object} mensagem - Objeto da mensagem
    */
   async marcarComoLida(mensagem) {
@@ -271,6 +278,7 @@ class WhatsAppManager {
 
     try {
       await this.sock.readMessages([mensagem.key]);
+      console.log('   ✓ Mensagem marcada como lida');
     } catch (error) {
       console.error('❌ Erro ao marcar mensagem como lida:', error);
     }

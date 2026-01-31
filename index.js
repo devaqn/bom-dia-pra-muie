@@ -249,26 +249,28 @@ async function processarRespostaTomou(remetente, mensagemTexto, tomou) {
     );
     
     if (tomou) {
-      // Se tomou, pergunta se está bem
-      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.CONFIRMACAO_POSITIVA);
+      // TOMOU - pergunta como está se sentindo
+      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.PERGUNTA_BEM_ESTAR);
       await whatsapp.enviarMensagemHumana(remetente, mensagem);
       
-      // Avança para próxima etapa
-      controleEstado.avancarEtapaAnticoncepcional(remetente, 'aguardando_bem_estar');
+      // Atualiza etapa para aguardar resposta sobre bem-estar
+      controleEstado.avancarEtapaAnticoncepcional(remetente);
       
-      // Define novo timeout para a resposta sobre bem-estar
+      // Define novo timeout para a pergunta de bem-estar
       controleEstado.definirTimeout(
         remetente,
-        () => {
-          // Se não responder sobre bem-estar, assume que está tudo bem
-          console.log('⏰ Sem resposta sobre bem-estar - assumindo que está tudo ok');
-          finalizarFluxoComSucesso(dataAtual, true);
-        },
-        15 // 15 minutos para responder sobre bem-estar
+        () => tratarSemResposta(dataAtual),
+        HORARIOS.TIMEOUT_RESPOSTA
       );
       
+      console.log('   ✓ Pergunta sobre bem-estar enviada');
+      
     } else {
-      // Se NÃO tomou, avisa o admin imediatamente
+      // NÃO TOMOU - finaliza o fluxo e notifica admin
+      const mensagemPreocupacao = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.NAO_TOMOU);
+      await whatsapp.enviarMensagemHumana(remetente, mensagemPreocupacao);
+      
+      // Notifica admin
       const mensagemAdmin = substituirPlaceholders(
         MENSAGENS_ANTICONCEPCIONAL.AVISO_ADMIN_NAO_TOMOU,
         { horario: horarioAtual }
@@ -287,27 +289,27 @@ async function processarRespostaTomou(remetente, mensagemTexto, tomou) {
       // Finaliza o fluxo
       controleEstado.finalizarFluxoAnticoncepcional(remetente);
       
-      console.log('⚠️ Administrador notificado - NÃO TOMOU');
+      console.log('⚠️ Fluxo finalizado - Não tomou o anticoncepcional');
     }
     
   } catch (error) {
-    console.error('❌ Erro ao processar resposta sobre tomar:', error);
+    console.error('❌ Erro ao processar resposta sobre anticoncepcional:', error);
   }
 }
 
 /**
- * Processa resposta sobre bem-estar
+ * Processa resposta sobre como está se sentindo
  */
 async function processarRespostaBemEstar(remetente, mensagemTexto, estaBem) {
   try {
     const dataAtual = obterDataAtual();
     
-    console.log(`\n💬 Processando bem-estar: ${estaBem ? 'ESTÁ BEM' : 'NÃO ESTÁ BEM'}`);
+    console.log(`\n💬 Processando resposta: ${estaBem ? 'ESTÁ BEM' : 'NÃO ESTÁ BEM'}`);
     
-    // Cancela timeout
+    // Cancela o timeout
     controleEstado.cancelarTimeout(remetente);
     
-    // Registra no banco
+    // Registra a resposta no banco
     database.registrarRespostaBemEstar(dataAtual, estaBem ? 'sim' : 'nao');
     database.registrarHistorico(
       'anticoncepcional_resposta',
@@ -318,8 +320,8 @@ async function processarRespostaBemEstar(remetente, mensagemTexto, estaBem) {
     );
     
     if (estaBem) {
-      // Está tudo bem - agradece e avisa o admin
-      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.AGRADECIMENTO);
+      // ESTÁ bem - mensagem de felicidade
+      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.FELICIDADE);
       await whatsapp.enviarMensagemHumana(remetente, mensagem);
       
       await finalizarFluxoComSucesso(dataAtual, true);
@@ -385,20 +387,20 @@ async function finalizarFluxoComSucesso(data, estaBem) {
 
 async function processarMensagemRecebida(remetente, mensagemTexto, mensagemCompleta) {
   try {
-    // Marca como lida
-    await whatsapp.marcarComoLida(mensagemCompleta);
-    
-    // Verifica se é da namorada
+    // 🔧 CORREÇÃO 1: Primeiro verifica se é da namorada
     if (remetente !== NUMERO_NAMORADA) {
       console.log('   ℹ️ Mensagem de número desconhecido - ignorando');
       return;
     }
     
-    // Verifica se está em algum fluxo ativo
+    // 🔧 CORREÇÃO 2: Verifica se está em algum fluxo ativo ANTES de marcar como lida
     if (!controleEstado.estáNoFluxoAnticoncepcional(remetente)) {
       console.log('   ℹ️ Nenhum fluxo ativo - ignorando mensagem');
       return;
     }
+    
+    // 🔧 CORREÇÃO 3: SÓ MARCA COMO LIDA SE ESTIVER NO FLUXO ATIVO
+    await whatsapp.marcarComoLida(mensagemCompleta);
     
     // Obtém a etapa atual do fluxo
     const etapa = controleEstado.obterEtapaAnticoncepcional(remetente);
@@ -420,6 +422,7 @@ async function processarMensagemRecebida(remetente, mensagemTexto, mensagemCompl
       }
       
       console.log('   ⚠️ Resposta não reconhecida na etapa "aguardando_tomou"');
+      console.log('   💡 Dica: Procure por palavras como "sim", "tomei", "não", "esqueci"');
       
     } else if (etapa === 'aguardando_bem_estar') {
       // Verifica se está bem
@@ -435,6 +438,7 @@ async function processarMensagemRecebida(remetente, mensagemTexto, mensagemCompl
       }
       
       console.log('   ⚠️ Resposta não reconhecida na etapa "aguardando_bem_estar"');
+      console.log('   💡 Dica: Procure por palavras como "bem", "normal", "mal", "enjoada"');
     }
     
   } catch (error) {
