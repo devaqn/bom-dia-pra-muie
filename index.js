@@ -47,6 +47,16 @@ const database = new DatabaseManager();
 const NUMERO_NAMORADA = formatarNumeroWhatsApp(CONFIG.NAMORADA);
 const NUMERO_ADMIN = formatarNumeroWhatsApp(CONFIG.ADMIN);
 
+/**
+ * Obtém a data vinculada ao fluxo ativo para evitar inconsistência quando vira o dia.
+ * @param {string} remetente
+ * @returns {string}
+ */
+function obterDataFluxo(remetente) {
+  const estadoAtivo = controleEstado.obterEstado(remetente);
+  return estadoAtivo?.data || obterDataAtual();
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // VALIDAÇÃO DE CONFIGURAÇÃO
 // ═══════════════════════════════════════════════════════════════════
@@ -230,7 +240,7 @@ async function tratarSemResposta(data) {
  */
 async function processarRespostaTomou(remetente, mensagemTexto, tomou) {
   try {
-    const dataAtual = obterDataAtual();
+    const dataFluxo = obterDataFluxo(remetente);
     const horarioAtual = obterHorarioAtual();
     
     console.log(`\n💬 Processando resposta: ${tomou ? 'TOMOU' : 'NÃO TOMOU'}`);
@@ -239,7 +249,7 @@ async function processarRespostaTomou(remetente, mensagemTexto, tomou) {
     controleEstado.cancelarTimeout(remetente);
     
     // Registra a resposta no banco
-    database.registrarRespostaTomou(dataAtual, tomou ? 'sim' : 'nao', horarioAtual);
+    database.registrarRespostaTomou(dataFluxo, tomou ? 'sim' : 'nao', horarioAtual);
     database.registrarHistorico(
       'anticoncepcional_resposta',
       CONFIG.NAMORADA,
@@ -250,16 +260,16 @@ async function processarRespostaTomou(remetente, mensagemTexto, tomou) {
     
     if (tomou) {
       // TOMOU - pergunta como está se sentindo
-      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.PERGUNTA_BEM_ESTAR);
+      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.CONFIRMACAO_POSITIVA);
       await whatsapp.enviarMensagemHumana(remetente, mensagem);
       
       // Atualiza etapa para aguardar resposta sobre bem-estar
-      controleEstado.avancarEtapaAnticoncepcional(remetente);
+      controleEstado.avancarEtapaAnticoncepcional(remetente, 'aguardando_bem_estar');
       
       // Define novo timeout para a pergunta de bem-estar
       controleEstado.definirTimeout(
         remetente,
-        () => tratarSemResposta(dataAtual),
+        () => tratarSemResposta(dataFluxo),
         HORARIOS.TIMEOUT_RESPOSTA
       );
       
@@ -267,7 +277,8 @@ async function processarRespostaTomou(remetente, mensagemTexto, tomou) {
       
     } else {
       // NÃO TOMOU - finaliza o fluxo e notifica admin
-      const mensagemPreocupacao = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.NAO_TOMOU);
+      const mensagensNaoTomou = MENSAGENS_ANTICONCEPCIONAL.NAO_TOMOU || MENSAGENS_ANTICONCEPCIONAL.PREOCUPACAO;
+      const mensagemPreocupacao = escolherMensagemAleatoria(mensagensNaoTomou);
       await whatsapp.enviarMensagemHumana(remetente, mensagemPreocupacao);
       
       // Notifica admin
@@ -302,7 +313,7 @@ async function processarRespostaTomou(remetente, mensagemTexto, tomou) {
  */
 async function processarRespostaBemEstar(remetente, mensagemTexto, estaBem) {
   try {
-    const dataAtual = obterDataAtual();
+    const dataFluxo = obterDataFluxo(remetente);
     
     console.log(`\n💬 Processando resposta: ${estaBem ? 'ESTÁ BEM' : 'NÃO ESTÁ BEM'}`);
     
@@ -310,7 +321,7 @@ async function processarRespostaBemEstar(remetente, mensagemTexto, estaBem) {
     controleEstado.cancelarTimeout(remetente);
     
     // Registra a resposta no banco
-    database.registrarRespostaBemEstar(dataAtual, estaBem ? 'sim' : 'nao');
+    database.registrarRespostaBemEstar(dataFluxo, estaBem ? 'sim' : 'nao');
     database.registrarHistorico(
       'anticoncepcional_resposta',
       CONFIG.NAMORADA,
@@ -320,18 +331,18 @@ async function processarRespostaBemEstar(remetente, mensagemTexto, estaBem) {
     );
     
     if (estaBem) {
-      // ESTÁ bem - mensagem de felicidade
-      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.FELICIDADE);
+      // ESTÁ bem - envia mensagem de agradecimento
+      const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.AGRADECIMENTO);
       await whatsapp.enviarMensagemHumana(remetente, mensagem);
       
-      await finalizarFluxoComSucesso(dataAtual, true);
+      await finalizarFluxoComSucesso(dataFluxo, true);
       
     } else {
       // NÃO está bem - demonstra preocupação
       const mensagem = escolherMensagemAleatoria(MENSAGENS_ANTICONCEPCIONAL.PREOCUPACAO);
       await whatsapp.enviarMensagemHumana(remetente, mensagem);
       
-      await finalizarFluxoComSucesso(dataAtual, false);
+      await finalizarFluxoComSucesso(dataFluxo, false);
     }
     
   } catch (error) {
@@ -409,15 +420,15 @@ async function processarMensagemRecebida(remetente, mensagemTexto, mensagemCompl
     
     // Processa de acordo com a etapa
     if (etapa === 'aguardando_tomou') {
-      // Verifica se respondeu que tomou
-      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.TOMOU)) {
-        await processarRespostaTomou(remetente, mensagemTexto, true);
+      // Verifica se respondeu que NAO tomou
+      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.NAO_TOMOU)) {
+        await processarRespostaTomou(remetente, mensagemTexto, false);
         return;
       }
       
-      // Verifica se respondeu que NÃO tomou
-      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.NAO_TOMOU)) {
-        await processarRespostaTomou(remetente, mensagemTexto, false);
+      // Verifica se respondeu que tomou
+      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.TOMOU)) {
+        await processarRespostaTomou(remetente, mensagemTexto, true);
         return;
       }
       
@@ -425,15 +436,15 @@ async function processarMensagemRecebida(remetente, mensagemTexto, mensagemCompl
       console.log('   💡 Dica: Procure por palavras como "sim", "tomei", "não", "esqueci"');
       
     } else if (etapa === 'aguardando_bem_estar') {
-      // Verifica se está bem
-      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.ESTA_BEM)) {
-        await processarRespostaBemEstar(remetente, mensagemTexto, true);
+      // Verifica se NAO esta bem
+      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.NAO_ESTA_BEM)) {
+        await processarRespostaBemEstar(remetente, mensagemTexto, false);
         return;
       }
       
-      // Verifica se NÃO está bem
-      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.NAO_ESTA_BEM)) {
-        await processarRespostaBemEstar(remetente, mensagemTexto, false);
+      // Verifica se esta bem
+      if (contemPalavraChave(mensagemTexto, PALAVRAS_CHAVE.ESTA_BEM)) {
+        await processarRespostaBemEstar(remetente, mensagemTexto, true);
         return;
       }
       

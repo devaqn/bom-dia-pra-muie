@@ -74,6 +74,15 @@ function normalizarTexto(texto) {
 }
 
 /**
+ * Escapa caracteres especiais para uso seguro em RegExp
+ * @param {string} texto
+ * @returns {string}
+ */
+function escaparRegex(texto) {
+  return texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * Verifica se o texto contém alguma das palavras-chave
  * @param {string} texto - Texto a verificar
  * @param {array} palavrasChave - Array de palavras-chave
@@ -84,9 +93,18 @@ function contemPalavraChave(texto, palavrasChave) {
   
   return palavrasChave.some(palavra => {
     const palavraNormalizada = normalizarTexto(palavra);
-    
-    // Verifica se a palavra está presente (palavra completa ou como parte do texto)
-    const regex = new RegExp(`\\b${palavraNormalizada}\\b|${palavraNormalizada}`, 'i');
+    if (!palavraNormalizada) return false;
+
+    const palavraEscapada = escaparRegex(palavraNormalizada);
+
+    // Para tokens curtos (ex.: "s", "n"), exige separadores para evitar falso positivo em substrings.
+    if (palavraNormalizada.length <= 2) {
+      const regexCurta = new RegExp(`(?:^|\\s|[.,!?;:()\\[\\]{}"'])${palavraEscapada}(?:$|\\s|[.,!?;:()\\[\\]{}"'])`, 'i');
+      return regexCurta.test(textoNormalizado);
+    }
+
+    // Para palavras/frases maiores, exige limites de palavra.
+    const regex = new RegExp(`\\b${palavraEscapada}\\b`, 'i');
     return regex.test(textoNormalizado);
   });
 }

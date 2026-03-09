@@ -33,7 +33,7 @@ class DatabaseManager {
         data TEXT NOT NULL UNIQUE,
         horario_lembrete TEXT NOT NULL,
         horario_resposta TEXT,
-        status TEXT NOT NULL, -- 'aguardando', 'tomou_bem', 'tomou_mal', 'nao_tomou', 'sem_resposta'
+        status TEXT NOT NULL, -- 'aguardando', 'tomou_aguardando_bem_estar', 'tomou_bem', 'tomou_mal', 'nao_tomou', 'sem_resposta'
         respondeu_bem TEXT, -- 'sim', 'nao', null
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -180,7 +180,7 @@ class DatabaseManager {
     const stmt = this.db.prepare(`
       UPDATE lembretes_anticoncepcional 
       SET status = 'sem_resposta', atualizado_em = CURRENT_TIMESTAMP
-      WHERE data = ? AND status = 'aguardando'
+      WHERE data = ? AND status IN ('aguardando', 'tomou_aguardando_bem_estar')
     `);
     
     const result = stmt.run(data);

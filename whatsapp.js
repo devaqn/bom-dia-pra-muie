@@ -73,8 +73,70 @@ class WhatsAppManager {
   }
 
   /**
-   * Inicializa a conexão com o WhatsApp
+   * Desempacota mensagens encapsuladas (ephemeral/viewOnce/edited).
+   * @param {object} mensagem
+   * @returns {object|null}
    */
+  extrairMensagemInterna(mensagem) {
+    if (!mensagem) return null;
+
+    if (mensagem.ephemeralMessage?.message) {
+      return this.extrairMensagemInterna(mensagem.ephemeralMessage.message);
+    }
+
+    if (mensagem.viewOnceMessage?.message) {
+      return this.extrairMensagemInterna(mensagem.viewOnceMessage.message);
+    }
+
+    if (mensagem.viewOnceMessageV2?.message) {
+      return this.extrairMensagemInterna(mensagem.viewOnceMessageV2.message);
+    }
+
+    if (mensagem.viewOnceMessageV2Extension?.message) {
+      return this.extrairMensagemInterna(mensagem.viewOnceMessageV2Extension.message);
+    }
+
+    if (mensagem.editedMessage?.message) {
+      return this.extrairMensagemInterna(mensagem.editedMessage.message);
+    }
+
+    if (mensagem.protocolMessage?.editedMessage?.message) {
+      return this.extrairMensagemInterna(mensagem.protocolMessage.editedMessage.message);
+    }
+
+    if (mensagem.documentWithCaptionMessage?.message) {
+      return this.extrairMensagemInterna(mensagem.documentWithCaptionMessage.message);
+    }
+
+    return mensagem;
+  }
+
+  /**
+   * Extrai texto de diferentes tipos de mensagens recebidas.
+   * @param {object} msg
+   * @returns {string}
+   */
+  extrairTextoMensagem(msg) {
+    const conteudo = this.extrairMensagemInterna(msg?.message);
+    if (!conteudo) return '';
+
+    const texto =
+      conteudo.conversation ||
+      conteudo.extendedTextMessage?.text ||
+      conteudo.imageMessage?.caption ||
+      conteudo.videoMessage?.caption ||
+      conteudo.buttonsResponseMessage?.selectedDisplayText ||
+      conteudo.buttonsResponseMessage?.selectedButtonId ||
+      conteudo.listResponseMessage?.singleSelectReply?.selectedRowId ||
+      conteudo.listResponseMessage?.title ||
+      conteudo.templateButtonReplyMessage?.selectedDisplayText ||
+      conteudo.templateButtonReplyMessage?.selectedId ||
+      conteudo.interactiveResponseMessage?.body?.text ||
+      conteudo.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+      '';
+
+    return typeof texto === 'string' ? texto.trim() : '';
+  }
   async iniciar() {
     try {
       console.log('🚀 Iniciando conexão com WhatsApp...');
@@ -211,9 +273,10 @@ class WhatsAppManager {
 
           // Extrai informações da mensagem
           const remetente = msg.key.remoteJid;
-          const mensagem = msg.message?.conversation || 
-                          msg.message?.extendedTextMessage?.text || 
-                          '';
+          const mensagem = this.extrairTextoMensagem(msg);
+
+          // Ignora mensagens de status/broadcast
+          if (!remetente || remetente === 'status@broadcast') continue;
 
           // Verifica se é uma mensagem válida
           if (!mensagem) continue;
